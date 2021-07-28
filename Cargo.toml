@@ -8,4 +8,5 @@ edition = "2018"
 tokio = {version = "1.8.1", features = ["full"]}
 anyhow = "1.0.42"
 serde_yaml = "0.8.17"
-serde = "1.0.126"
+blake3 = {version = "1.0.0", features = ["std", "rayon"]}
+data-encoding = "2.3.2"
