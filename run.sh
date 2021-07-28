@@ -1,2 +1,4 @@
 export ANGO_PATH=$PWD/.ango
-cargo run
+cargo run -- add .gitignore
+cargo run -- add Cargo.lock
+cargo run -- add Cargo.toml

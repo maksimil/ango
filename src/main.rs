@@ -5,10 +5,24 @@ use std::{
 };
 
 use anyhow::Context;
+use clap::clap_app;
 use data_encoding::BASE32HEX_NOPAD;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // getting cli args
+    let matches = clap_app!(ango =>
+        (version: env!("CARGO_PKG_VERSION"))
+        (author: env!("CARGO_PKG_AUTHORS"))
+        (about: "Merkle trees showoff")
+        (@subcommand add =>
+            (about: "Adds file to the tree")
+            (@arg FILE: +required "input file")
+        )
+    )
+    .get_matches();
+
+    // getting environment
     let angopath: PathBuf = std::env::var_os("ANGO_PATH")
         .context("ANGO_PATH is not set")?
         .into();
@@ -29,12 +43,15 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    // adding .gitignore to the filelist
-    {
-        let entryname = ".gitignore".to_string();
-        let contents = read("./.gitignore").context("failed to open ./.gitignore")?;
+    // add subcommand
+    if let Some(add) = matches.subcommand_matches("add") {
+        // getting file
+        let fname = add.value_of("FILE").context("FILE arg was not provided")?;
+        let entryname = fname.to_string();
+        let contents = read(fname).context("failed to open ./.gitignore")?;
         let hash = BASE32HEX_NOPAD.encode(blake3::hash(&contents).as_bytes());
 
+        // checking for existence
         if !hashset.contains(&hash) {
             hashmap.insert(entryname.clone(), hash.clone());
 
