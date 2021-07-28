@@ -1,0 +1,11 @@
+[package]
+name = "ango"
+version = "0.1.0"
+authors = ["Maxim Kosterov <maxim.kosterov@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+tokio = {version = "1.8.1", features = ["full"]}
+anyhow = "1.0.42"
+serde_yaml = "0.8.17"
+serde = "1.0.126"
