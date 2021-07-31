@@ -1,5 +1,4 @@
 use std::{
-    collections::{HashMap, HashSet},
     fs::{read, read_to_string, write},
     path::PathBuf,
 };
@@ -7,6 +6,10 @@ use std::{
 use anyhow::Context;
 use clap::clap_app;
 use data_encoding::BASE32HEX_NOPAD;
+
+use crate::heads::{de_config, se_config};
+
+mod heads;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -27,20 +30,13 @@ async fn main() -> anyhow::Result<()> {
         .context("ANGO_PATH is not set")?
         .into();
 
-    let angoyml_path = angopath.join("ango.yml");
+    let config_path = angopath.join("ango.toml");
     let data_path = angopath.join("data");
 
-    // getting ango.yml configs
-    let (mut hashmap, hashset) = {
-        let filecontents = read_to_string(&angoyml_path).context("failed to read ango.yml")?;
-        if filecontents != "" {
-            let hashmap: HashMap<String, String> =
-                serde_yaml::from_str(&filecontents).context("failed to parse ango.yml")?;
-            let hashset: HashSet<String> = hashmap.iter().map(|v| v.1.clone()).collect();
-            (hashmap, hashset)
-        } else {
-            (HashMap::new(), HashSet::new())
-        }
+    // getting ango.toml configs
+    let (mut hashmap, mut hashset) = {
+        let filecontents = read_to_string(&config_path).context("failed to read ango.toml")?;
+        de_config(&filecontents)?
     };
 
     // add subcommand
@@ -48,12 +44,13 @@ async fn main() -> anyhow::Result<()> {
         // getting file
         let fname = add.value_of("FILE").context("FILE arg was not provided")?;
         let entryname = fname.to_string();
-        let contents = read(fname).context("failed to open ./.gitignore")?;
+        let contents = read(fname).context("failed to open FILE")?;
         let hash = BASE32HEX_NOPAD.encode(blake3::hash(&contents).as_bytes());
 
         // checking for existence
         if !hashset.contains(&hash) {
             hashmap.insert(entryname.clone(), hash.clone());
+            hashset.insert(hash.clone());
 
             // writing file
             write(data_path.join(hash), contents)
@@ -62,9 +59,9 @@ async fn main() -> anyhow::Result<()> {
             hashmap.insert(entryname.clone(), hash);
         }
 
-        // writing ango.yml
-        let hashmap = serde_yaml::to_string(&hashmap).context("failed to encode ango.yml")?;
-        write(&angoyml_path, hashmap).context("failed to save ango.yml")?;
+        // writing ango.toml
+        let hashmap = se_config(hashmap, hashset)?;
+        write(&config_path, hashmap).context("failed to save ango.toml")?;
     }
 
     Ok(())

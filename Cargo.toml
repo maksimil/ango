@@ -7,7 +7,9 @@ edition = "2018"
 [dependencies]
 tokio = {version = "1.8.1", features = ["full"]}
 anyhow = "1.0.42"
-serde_yaml = "0.8.17"
+serde = "1.0.127"
+serde_derive = "1.0.127"
+toml = "0.5.8"
 blake3 = {version = "1.0.0", features = ["std", "rayon"]}
 data-encoding = "2.3.2"
 clap = "2.33.3"
