@@ -1,14 +1,14 @@
 use std::{
-    fs::{read, read_to_string, write},
+    fs::{read_to_string, write},
     path::PathBuf,
 };
 
 use anyhow::Context;
 use clap::clap_app;
-use data_encoding::BASE32HEX_NOPAD;
 
 use crate::heads::{de_config, se_config};
 
+mod commands;
 mod heads;
 
 #[tokio::main]
@@ -45,20 +45,7 @@ async fn main() -> anyhow::Result<()> {
         // getting file
         let fname = add.value_of("FILE").context("FILE arg was not provided")?;
         let epname = add.value_of("AS").unwrap_or(fname).to_string();
-        let contents = read(fname).context("failed to open FILE")?;
-        let hash = BASE32HEX_NOPAD.encode(blake3::hash(&contents).as_bytes());
-
-        // checking for existence
-        if !hashset.contains(&hash) {
-            hashmap.insert(epname.clone(), hash.clone());
-            hashset.insert(hash.clone());
-
-            // writing file
-            write(data_path.join(hash), contents)
-                .with_context(|| format!("Failed to write {}", epname))?;
-        } else if !hashmap.contains_key(&epname) {
-            hashmap.insert(epname.clone(), hash);
-        }
+        commands::add(fname, epname, &mut hashset, &mut hashmap, &data_path)?;
 
         // writing ango.toml
         let hashmap = se_config(hashmap, hashset)?;
