@@ -21,6 +21,7 @@ async fn main() -> anyhow::Result<()> {
         (@subcommand add =>
             (about: "Adds file to the tree")
             (@arg FILE: +required "input file")
+            (@arg AS: -a --as +takes_value "endpoint name")
         )
     )
     .get_matches();
@@ -43,20 +44,20 @@ async fn main() -> anyhow::Result<()> {
     if let Some(add) = matches.subcommand_matches("add") {
         // getting file
         let fname = add.value_of("FILE").context("FILE arg was not provided")?;
-        let entryname = fname.to_string();
+        let epname = add.value_of("AS").unwrap_or(fname).to_string();
         let contents = read(fname).context("failed to open FILE")?;
         let hash = BASE32HEX_NOPAD.encode(blake3::hash(&contents).as_bytes());
 
         // checking for existence
         if !hashset.contains(&hash) {
-            hashmap.insert(entryname.clone(), hash.clone());
+            hashmap.insert(epname.clone(), hash.clone());
             hashset.insert(hash.clone());
 
             // writing file
             write(data_path.join(hash), contents)
-                .with_context(|| format!("Failed to write {}", entryname))?;
-        } else if !hashmap.contains_key(&entryname) {
-            hashmap.insert(entryname.clone(), hash);
+                .with_context(|| format!("Failed to write {}", epname))?;
+        } else if !hashmap.contains_key(&epname) {
+            hashmap.insert(epname.clone(), hash);
         }
 
         // writing ango.toml
