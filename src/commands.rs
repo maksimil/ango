@@ -1,5 +1,4 @@
 use std::{
-    collections::{HashMap, HashSet},
     fs::{metadata, read, write},
     path::PathBuf,
 };
@@ -7,13 +6,12 @@ use std::{
 use anyhow::Context;
 use data_encoding::BASE32HEX_NOPAD;
 
-use crate::heads::{ObjectType, TypedHash};
+use crate::angofile::{AngoContext, LinkType, TypedHash};
 
 pub fn add(
     path: &str,
     epname: String,
-    hashset: &mut HashSet<String>,
-    hashmap: &mut HashMap<String, TypedHash>,
+    context: &mut AngoContext,
     data_path: &PathBuf,
 ) -> anyhow::Result<()> {
     let meta = metadata(path).context("failed to open FILE")?;
@@ -23,27 +21,32 @@ pub fn add(
         let hash = BASE32HEX_NOPAD.encode(blake3::hash(&contents).as_bytes());
 
         // checking for existence
-        if !hashset.contains(&hash) {
-            hashmap.insert(
+        if !context.objects.contains(&hash) {
+            context.links.insert(
                 epname.clone(),
                 TypedHash {
-                    ty: ObjectType::File,
+                    ty: LinkType::File,
                     hash: hash.clone(),
                 },
             );
-            hashset.insert(hash.clone());
+            context.objects.insert(hash.clone());
 
             // writing file
             write(data_path.join(hash), contents)
                 .with_context(|| format!("failed to write {}", epname))?;
-        } else if !hashmap.contains_key(&epname) {
+        } else if !context.links.contains_key(&epname) {
             // adding endpoint, since the file exists
-            hashmap.insert(
+            context.links.insert(
                 epname.clone(),
                 TypedHash {
-                    ty: ObjectType::File,
+                    ty: LinkType::File,
                     hash,
                 },
+            );
+        } else {
+            println!(
+                "\x1b[33m[WARN]\x1b[0m Link {} already exists to {}",
+                epname, hash
             );
         }
         Ok(())

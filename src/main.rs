@@ -6,10 +6,10 @@ use std::{
 use anyhow::Context;
 use clap::clap_app;
 
-use crate::heads::{de_config, se_config};
+use crate::angofile::{de_config, se_config};
 
+mod angofile;
 mod commands;
-mod heads;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -35,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
     let data_path = angopath.join("data");
 
     // getting ango.toml configs
-    let (mut hashmap, mut hashset) = {
+    let mut context = {
         let filecontents = read_to_string(&config_path).context("failed to read ango.toml")?;
         de_config(&filecontents)?
     };
@@ -45,10 +45,10 @@ async fn main() -> anyhow::Result<()> {
         // getting file
         let fname = add.value_of("FILE").context("FILE arg was not provided")?;
         let epname = add.value_of("AS").unwrap_or(fname).to_string();
-        commands::add(fname, epname, &mut hashset, &mut hashmap, &data_path)?;
+        commands::add(fname, epname, &mut context, &data_path)?;
 
         // writing ango.toml
-        let hashmap = se_config(hashmap, hashset)?;
+        let hashmap = se_config(context)?;
         write(&config_path, hashmap).context("failed to save ango.toml")?;
     }
 
