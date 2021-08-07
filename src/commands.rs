@@ -8,18 +8,13 @@ use data_encoding::BASE32HEX_NOPAD;
 
 use crate::angofile::{AngoContext, LinkType, TypedHash};
 
-pub fn add(
-    path: &str,
-    epname: String,
-    context: &mut AngoContext,
-    data_path: &PathBuf,
-) -> anyhow::Result<()> {
-    let meta = metadata(path).context("failed to open FILE")?;
+pub fn add(path: &str, epname: String, context: &mut AngoContext) -> anyhow::Result<()> {
+    let meta = metadata(path).with_context(|| format!("failed to open {}", path))?;
     if meta.is_file() {
         // getting file
-        let contents = read(path).context("failed to open FILE")?;
+        let contents = read(path).with_context(|| format!("failed to open {}", path))?;
 
-        let (hash, added) = add_object(&contents, context, data_path)?;
+        let (hash, added) = add_object(&contents, context, &context.data_path())?;
         if added || !context.links.contains_key(&epname) {
             context.links.insert(
                 epname.clone(),

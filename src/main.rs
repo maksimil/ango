@@ -1,12 +1,7 @@
-use std::{
-    fs::{read_to_string, write},
-    path::PathBuf,
-};
-
 use anyhow::Context;
 use clap::clap_app;
 
-use crate::angofile::{de_config, se_config};
+use crate::angofile::{get_context, save_context};
 
 mod angofile;
 mod commands;
@@ -26,30 +21,16 @@ async fn main() -> anyhow::Result<()> {
     )
     .get_matches();
 
-    // getting environment
-    let angopath: PathBuf = std::env::var_os("ANGO_PATH")
-        .context("ANGO_PATH is not set")?
-        .into();
-
-    let config_path = angopath.join("ango.toml");
-    let data_path = angopath.join("data");
-
-    // getting ango.toml configs
-    let mut context = {
-        let filecontents = read_to_string(&config_path).context("failed to read ango.toml")?;
-        de_config(&filecontents)?
-    };
+    let mut context = get_context()?;
 
     // add subcommand
     if let Some(add) = matches.subcommand_matches("add") {
         // getting file
         let fname = add.value_of("FILE").context("FILE arg was not provided")?;
         let epname = add.value_of("AS").unwrap_or(fname).to_string();
-        commands::add(fname, epname, &mut context, &data_path)?;
+        commands::add(fname, epname, &mut context)?;
 
-        // writing ango.toml
-        let hashmap = se_config(context)?;
-        write(&config_path, hashmap).context("failed to save ango.toml")?;
+        save_context(context)?;
     }
 
     Ok(())
