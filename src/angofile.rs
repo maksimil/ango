@@ -33,6 +33,22 @@ pub struct TypedHash {
     pub hash: String,
 }
 
+impl TypedHash {
+    pub fn file(hash: String) -> TypedHash {
+        TypedHash {
+            hash,
+            ty: LinkType::File,
+        }
+    }
+
+    pub fn folder(hash: String) -> TypedHash {
+        TypedHash {
+            hash,
+            ty: LinkType::Folder,
+        }
+    }
+}
+
 pub struct AngoContext {
     pub objects: HashSet<String>,
     pub links: HashMap<String, TypedHash>,
@@ -82,7 +98,7 @@ pub fn save_context(context: AngoContext) -> anyhow::Result<()> {
         .collect();
 
     let contents =
-        toml::to_string(&AngoFile { links, objects }).context("failed to serialize anog.toml")?;
+        toml::to_string(&AngoFile { links, objects }).context("failed to serialize ango.toml")?;
     write(ango_path.join("ango.toml"), contents).context("failed to save ango.toml")?;
 
     Ok(())

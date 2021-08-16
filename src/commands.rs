@@ -6,6 +6,8 @@ use std::{
 use anyhow::Context;
 use data_encoding::BASE32HEX_NOPAD;
 
+use serde_derive::{Deserialize, Serialize};
+
 use crate::angofile::{AngoContext, LinkType, TypedHash};
 
 pub fn add(path: &str, epname: String, context: &mut AngoContext) -> anyhow::Result<()> {
@@ -59,6 +61,18 @@ fn add_object(contents: &[u8], context: &mut AngoContext) -> anyhow::Result<Stri
     Ok(hash)
 }
 
+#[derive(Deserialize, Serialize)]
+struct Entry {
+    name: String,
+    ty: LinkType,
+    hash: String,
+}
+
+#[derive(Deserialize, Serialize)]
+struct EntryList {
+    entries: Vec<Entry>,
+}
+
 fn add_pathed<P>(path: P, context: &mut AngoContext) -> anyhow::Result<TypedHash>
 where
     P: AsRef<Path>,
@@ -75,16 +89,15 @@ where
         let hash = add_object(&contents, context)
             .with_context(|| format!("failed to add {} as an object", path.to_string_lossy()))?;
 
-        Ok(TypedHash {
-            hash,
-            ty: LinkType::File,
-        })
+        Ok(TypedHash::file(hash))
     } else if meta.is_dir() {
         // getting the dir data
         let entries = read_dir(path)
             .with_context(|| format!("failed to read {} dir", path.to_string_lossy()))?;
 
-        let mut entrylist = Vec::new();
+        let mut entrylist = EntryList {
+            entries: Vec::new(),
+        };
 
         for entry in entries {
             let entry = entry
@@ -96,18 +109,26 @@ where
                 })?
                 .path();
 
-            let epname = entry.strip_prefix(path).with_context(|| {
-                format!(
-                    "failed to get relative path of {} from {}",
-                    entry.to_string_lossy(),
-                    path.to_string_lossy()
-                )
-            })?;
+            let name = entry
+                .strip_prefix(path)
+                .with_context(|| {
+                    format!(
+                        "failed to get relative path of {} from {}",
+                        entry.to_string_lossy(),
+                        path.to_string_lossy()
+                    )
+                })?
+                .to_string_lossy()
+                .into_owned();
 
             let hash = add_pathed(&entry, context)
                 .with_context(|| format!("failed to add {}", entry.to_string_lossy()))?;
 
-            entrylist.push((epname.to_owned(), hash));
+            entrylist.entries.push(Entry {
+                name,
+                hash: hash.hash,
+                ty: hash.ty,
+            });
         }
 
         let entrylist = toml::to_string(&entrylist)
@@ -117,10 +138,7 @@ where
             format!("failed to add {} entrylist object", path.to_string_lossy())
         })?;
 
-        Ok(TypedHash {
-            hash,
-            ty: LinkType::Folder,
-        })
+        Ok(TypedHash::folder(hash))
     } else {
         Err(anyhow::anyhow!("failed to open FILE as directory or file"))
     }
