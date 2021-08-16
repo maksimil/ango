@@ -27,6 +27,7 @@ pub enum LinkType {
     Chunk,
 }
 
+#[derive(Deserialize, Serialize)]
 pub struct TypedHash {
     pub ty: LinkType,
     pub hash: String,

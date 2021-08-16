@@ -1,6 +1,6 @@
 use std::{
-    fs::{metadata, read, write},
-    path::PathBuf,
+    fs::{metadata, read, read_dir, write},
+    path::Path,
 };
 
 use anyhow::Context;
@@ -9,7 +9,7 @@ use data_encoding::BASE32HEX_NOPAD;
 use crate::angofile::{AngoContext, LinkType, TypedHash};
 
 pub fn add(path: &str, epname: String, context: &mut AngoContext) -> anyhow::Result<()> {
-    let hash = add_pathed(path.into(), context)?;
+    let hash = add_pathed(path, context)?;
 
     match add_link(epname.clone(), hash, context)? {
         LinkResult::AlreadyExists => {
@@ -59,14 +59,18 @@ fn add_object(contents: &[u8], context: &mut AngoContext) -> anyhow::Result<Stri
     Ok(hash)
 }
 
-fn add_pathed(path: PathBuf, context: &mut AngoContext) -> anyhow::Result<TypedHash> {
-    let meta = metadata(&path)
+fn add_pathed<P>(path: P, context: &mut AngoContext) -> anyhow::Result<TypedHash>
+where
+    P: AsRef<Path>,
+{
+    let path = path.as_ref();
+    let meta = metadata(path)
         .with_context(|| format!("failed to get {} metadata", path.to_string_lossy()))?;
 
     if meta.is_file() {
         // getting file
         let contents =
-            read(&path).with_context(|| format!("failed to open {}", path.to_string_lossy()))?;
+            read(path).with_context(|| format!("failed to open {}", path.to_string_lossy()))?;
 
         let hash = add_object(&contents, context)
             .with_context(|| format!("failed to add {} as an object", path.to_string_lossy()))?;
@@ -76,7 +80,47 @@ fn add_pathed(path: PathBuf, context: &mut AngoContext) -> anyhow::Result<TypedH
             ty: LinkType::File,
         })
     } else if meta.is_dir() {
-        Err(anyhow::anyhow!("failed to open FILE as file"))
+        // getting the dir data
+        let entries = read_dir(path)
+            .with_context(|| format!("failed to read {} dir", path.to_string_lossy()))?;
+
+        let mut entrylist = Vec::new();
+
+        for entry in entries {
+            let entry = entry
+                .with_context(|| {
+                    format!(
+                        "failed to read one of {} dir entries",
+                        path.to_string_lossy()
+                    )
+                })?
+                .path();
+
+            let epname = entry.strip_prefix(path).with_context(|| {
+                format!(
+                    "failed to get relative path of {} from {}",
+                    entry.to_string_lossy(),
+                    path.to_string_lossy()
+                )
+            })?;
+
+            let hash = add_pathed(&entry, context)
+                .with_context(|| format!("failed to add {}", entry.to_string_lossy()))?;
+
+            entrylist.push((epname.to_owned(), hash));
+        }
+
+        let entrylist = toml::to_string(&entrylist)
+            .with_context(|| format!("failed to serialize {} entries", path.to_string_lossy()))?;
+
+        let hash = add_object(entrylist.as_bytes(), context).with_context(|| {
+            format!("failed to add {} entrylist object", path.to_string_lossy())
+        })?;
+
+        Ok(TypedHash {
+            hash,
+            ty: LinkType::Folder,
+        })
     } else {
         Err(anyhow::anyhow!("failed to open FILE as directory or file"))
     }
