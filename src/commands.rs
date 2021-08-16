@@ -9,40 +9,42 @@ use data_encoding::BASE32HEX_NOPAD;
 use crate::angofile::{AngoContext, LinkType, TypedHash};
 
 pub fn add(path: &str, epname: String, context: &mut AngoContext) -> anyhow::Result<()> {
-    let meta = metadata(path).with_context(|| format!("failed to open {}", path))?;
-    if meta.is_file() {
-        // getting file
-        let contents = read(path).with_context(|| format!("failed to open {}", path))?;
+    let hash = add_pathed(path.into(), context)?;
 
-        let (hash, added) = add_object(&contents, context, &context.data_path())?;
-        if added || !context.links.contains_key(&epname) {
-            context.links.insert(
-                epname.clone(),
-                TypedHash {
-                    ty: LinkType::File,
-                    hash: hash.clone(),
-                },
-            );
-        } else {
+    match add_link(epname.clone(), hash, context)? {
+        LinkResult::AlreadyExists => {
             println!(
-                "\x1b[33m[WARN]\x1b[0m Link {} already exists to {}",
-                epname, hash
+                "Link {} already exists to {}",
+                epname,
+                context.links.get(&epname).unwrap().hash
             );
         }
-        Ok(())
-    } else if meta.is_dir() {
-        Err(anyhow::anyhow!("failed to open FILE as file"))
+        _ => (),
+    }
+
+    Ok(())
+}
+
+enum LinkResult {
+    Added,
+    AlreadyExists,
+}
+
+fn add_link(
+    epname: String,
+    hash: TypedHash,
+    context: &mut AngoContext,
+) -> anyhow::Result<LinkResult> {
+    if !context.links.contains_key(&epname) {
+        context.links.insert(epname, hash);
+        Ok(LinkResult::Added)
     } else {
-        Err(anyhow::anyhow!("failed to open FILE as directory or file"))
+        Ok(LinkResult::AlreadyExists)
     }
 }
 
 // returns true if the hash was not in the set
-fn add_object(
-    contents: &[u8],
-    context: &mut AngoContext,
-    data_path: &PathBuf,
-) -> anyhow::Result<(String, bool)> {
+fn add_object(contents: &[u8], context: &mut AngoContext) -> anyhow::Result<String> {
     let hash = BASE32HEX_NOPAD.encode(blake3::hash(&contents).as_bytes());
 
     // checking for existence
@@ -50,10 +52,32 @@ fn add_object(
         context.objects.insert(hash.clone());
 
         // writing the file
-        write(data_path.join(&hash), contents)
+        write(context.data_path().join(&hash), contents)
             .with_context(|| format!("failed to write {}", hash))?;
-        Ok((hash, true))
+    }
+
+    Ok(hash)
+}
+
+fn add_pathed(path: PathBuf, context: &mut AngoContext) -> anyhow::Result<TypedHash> {
+    let meta = metadata(&path)
+        .with_context(|| format!("failed to get {} metadata", path.to_string_lossy()))?;
+
+    if meta.is_file() {
+        // getting file
+        let contents =
+            read(&path).with_context(|| format!("failed to open {}", path.to_string_lossy()))?;
+
+        let hash = add_object(&contents, context)
+            .with_context(|| format!("failed to add {} as an object", path.to_string_lossy()))?;
+
+        Ok(TypedHash {
+            hash,
+            ty: LinkType::File,
+        })
+    } else if meta.is_dir() {
+        Err(anyhow::anyhow!("failed to open FILE as file"))
     } else {
-        Ok((hash, false))
+        Err(anyhow::anyhow!("failed to open FILE as directory or file"))
     }
 }
