@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use anyhow::Context;
 use clap::clap_app;
 
@@ -6,8 +8,7 @@ use crate::angofile::{get_context, save_context};
 mod angofile;
 mod commands;
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     // getting cli args
     let matches = clap_app!(ango =>
         (version: env!("CARGO_PKG_VERSION"))
@@ -21,16 +22,19 @@ async fn main() -> anyhow::Result<()> {
     )
     .get_matches();
 
-    let mut context = get_context()?;
+    let context = Arc::new(Mutex::new(get_context().context("failed to get context")?));
 
     // add subcommand
     if let Some(add) = matches.subcommand_matches("add") {
         // getting file
         let fname = add.value_of("FILE").context("FILE arg was not provided")?;
         let epname = add.value_of("AS").unwrap_or(fname).to_string();
-        commands::add(fname, epname, &mut context)?;
+        commands::add(fname, epname, context.clone())?;
 
-        save_context(context)?;
+        let context = context
+            .lock()
+            .map_err(|_| anyhow::anyhow!("failed to lock context"))?;
+        save_context((*context).clone())?;
     }
 
     Ok(())

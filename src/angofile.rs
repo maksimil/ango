@@ -20,14 +20,14 @@ struct Link {
     hash: String,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone)]
 pub enum LinkType {
     File,
     Folder,
     Chunk,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone)]
 pub struct TypedHash {
     pub ty: LinkType,
     pub hash: String,
@@ -49,6 +49,7 @@ impl TypedHash {
     }
 }
 
+#[derive(Clone)]
 pub struct AngoContext {
     pub objects: HashSet<String>,
     pub links: HashMap<String, TypedHash>,

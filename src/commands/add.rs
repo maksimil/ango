@@ -1,21 +1,26 @@
 use std::{
     fs::{metadata, read, read_dir, write},
     path::Path,
+    sync::{Arc, Mutex},
 };
 
 use anyhow::Context;
 use data_encoding::BASE32HEX_NOPAD;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::{
     angofile::{AngoContext, TypedHash},
     commands::{EntryHash, EntryList},
 };
 
-pub fn add(path: &str, epname: String, context: &mut AngoContext) -> anyhow::Result<()> {
-    let hash = add_pathed(path, context)?;
+pub fn add(path: &str, epname: String, context: Arc<Mutex<AngoContext>>) -> anyhow::Result<()> {
+    let hash = add_pathed(path, context.clone())?;
 
-    match add_link(epname.clone(), hash, context)? {
+    match add_link(epname.clone(), hash, context.clone())? {
         LinkResult::AlreadyExists => {
+            let context = context
+                .lock()
+                .map_err(|_| anyhow::anyhow!("failed to lock context"))?;
             println!(
                 "Link {} already exists to {}",
                 epname,
@@ -36,8 +41,11 @@ enum LinkResult {
 fn add_link(
     epname: String,
     hash: TypedHash,
-    context: &mut AngoContext,
+    context: Arc<Mutex<AngoContext>>,
 ) -> anyhow::Result<LinkResult> {
+    let mut context = context
+        .lock()
+        .map_err(|_| anyhow::anyhow!("failed to lock context"))?;
     if !context.links.contains_key(&epname) {
         context.links.insert(epname, hash);
         Ok(LinkResult::Added)
@@ -47,9 +55,12 @@ fn add_link(
 }
 
 // returns true if the hash was not in the set
-fn add_object(contents: &[u8], context: &mut AngoContext) -> anyhow::Result<String> {
+fn add_object(contents: &[u8], context: Arc<Mutex<AngoContext>>) -> anyhow::Result<String> {
     let hash = BASE32HEX_NOPAD.encode(blake3::hash(&contents).as_bytes());
 
+    let mut context = context
+        .lock()
+        .map_err(|_| anyhow::anyhow!("failed to lock context"))?;
     // checking for existence
     if !context.objects.contains(&hash) {
         context.objects.insert(hash.clone());
@@ -62,7 +73,7 @@ fn add_object(contents: &[u8], context: &mut AngoContext) -> anyhow::Result<Stri
     Ok(hash)
 }
 
-fn add_pathed<P>(path: P, context: &mut AngoContext) -> anyhow::Result<TypedHash>
+fn add_pathed<P>(path: P, context: Arc<Mutex<AngoContext>>) -> anyhow::Result<TypedHash>
 where
     P: AsRef<Path>,
 {
@@ -82,45 +93,46 @@ where
     } else if meta.is_dir() {
         // getting the dir data
         let entries = read_dir(path)
-            .with_context(|| format!("failed to read {} dir", path.to_string_lossy()))?;
+            .with_context(|| format!("failed to read {} dir", path.to_string_lossy()))?
+            .collect::<Vec<_>>()
+            .into_par_iter()
+            .map(|entry| {
+                let entry = entry
+                    .with_context(|| {
+                        format!(
+                            "failed to read one of {} dir entries",
+                            path.to_string_lossy()
+                        )
+                    })?
+                    .path();
 
-        let mut entrylist = EntryList {
-            entries: Vec::new(),
-        };
+                let name = entry
+                    .strip_prefix(path)
+                    .with_context(|| {
+                        format!(
+                            "failed to get relative path of {} from {}",
+                            entry.to_string_lossy(),
+                            path.to_string_lossy()
+                        )
+                    })?
+                    .to_string_lossy()
+                    .into_owned();
 
-        for entry in entries {
-            let entry = entry
-                .with_context(|| {
-                    format!(
-                        "failed to read one of {} dir entries",
-                        path.to_string_lossy()
-                    )
-                })?
-                .path();
+                let hash = add_pathed(&entry, context.clone())
+                    .with_context(|| format!("failed to add {}", entry.to_string_lossy()))?;
 
-            let name = entry
-                .strip_prefix(path)
-                .with_context(|| {
-                    format!(
-                        "failed to get relative path of {} from {}",
-                        entry.to_string_lossy(),
-                        path.to_string_lossy()
-                    )
-                })?
-                .to_string_lossy()
-                .into_owned();
+                Ok(EntryHash {
+                    ty: hash.ty,
+                    name,
+                    hash: hash.hash,
+                }) as anyhow::Result<EntryHash>
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .with_context(|| format!("failed to hash {} dir entries", path.to_string_lossy()))?;
 
-            let hash = add_pathed(&entry, context)
-                .with_context(|| format!("failed to add {}", entry.to_string_lossy()))?;
-
-            entrylist.entries.push(EntryHash {
-                name,
-                hash: hash.hash,
-                ty: hash.ty,
-            });
-        }
-
-        let entrylist = toml::to_string(&entrylist)
+        let entrylist = toml::to_string(&EntryList { entries })
             .with_context(|| format!("failed to serialize {} entries", path.to_string_lossy()))?;
 
         let hash = add_object(entrylist.as_bytes(), context).with_context(|| {
